@@ -72,7 +72,7 @@ def main(config_path, model_override=None):
     direction_path = config.get("refusal_direction", None)
 
     if direction_path:
-        model, tokenizer = load_hooked_model(model_name, cache_dir)
+        model, tokenizer = load_hooked_model(model_name, cache_dir, precision)
         direction = torch.load(direction_path, map_location="cpu")
         fwd_hooks = build_refusal_hooks(direction, model.cfg.n_layers)
     else:

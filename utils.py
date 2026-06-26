@@ -94,10 +94,11 @@ def load_model(model_name: str, cache_dir: str = None, precision_bits: int = 16)
     return model, tokenizer
 
 
-def load_hooked_model(model_name: str, cache_dir: str = None):
+def load_hooked_model(model_name: str, cache_dir: str = None, precision_bits: int = 16):
     from transformer_lens import HookedTransformer
+    dtype = {32: torch.float32, 16: torch.float16, 8: torch.int8}.get(precision_bits, torch.float16)
     model_path = model_name if cache_dir is None else cache_dir + model_name
-    model = HookedTransformer.from_pretrained(model_path, fold_ln=False, center_writing_weights=False)
+    model = HookedTransformer.from_pretrained(model_path, fold_ln=False, center_writing_weights=False, dtype=dtype)
     return model, model.tokenizer
 
 
