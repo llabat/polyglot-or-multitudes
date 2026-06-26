@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from collections import defaultdict
 
 
-def get_grouped_token_log_probs(model, tokenizer, prompts, answer_tokens_list):
+def get_grouped_token_log_probs(model, tokenizer, prompts, answer_tokens_list, fwd_hooks=[]):
     """
     prompts: List[str]
     answer_tokens_list: List[List[str]] (same length as prompts)
@@ -15,7 +15,14 @@ def get_grouped_token_log_probs(model, tokenizer, prompts, answer_tokens_list):
 
     # Forward pass
     with torch.no_grad():
-        logits = model(**inputs, use_cache=False).logits  # (B, T, V)
+        if fwd_hooks:
+            logits = model.run_with_hooks(
+                inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                fwd_hooks=fwd_hooks,
+            )
+        else:
+            logits = model(**inputs, use_cache=False).logits  # (B, T, V)
 
     batch_size, _, vocab_size = logits.shape
 
@@ -49,9 +56,9 @@ def mcp(token_log_probs):
     return max(token_log_probs, key=lambda i: token_log_probs[i])
 
 
-def run_mcp_batch(prompts, answer_tokens_list, model, tokenizer):
+def run_mcp_batch(prompts, answer_tokens_list, model, tokenizer, fwd_hooks=[]):
     token_log_probs = get_grouped_token_log_probs(
-        model, tokenizer, prompts, answer_tokens_list
+        model, tokenizer, prompts, answer_tokens_list, fwd_hooks=fwd_hooks
     )
     max_tokens = [mcp(probs) for probs in token_log_probs]
     likert_notches = [answer_tokens_list[i].index(t) for i, t in enumerate(max_tokens)]

@@ -5,6 +5,7 @@ import torch
 import random
 import logging
 import itertools
+import functools
 import pandas as pd
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -91,3 +92,22 @@ def load_model(model_name: str, cache_dir: str = None, precision_bits: int = 16)
     logging.info(f"Model {model_name} loaded successfully.")
 
     return model, tokenizer
+
+
+def load_hooked_model(model_name: str, cache_dir: str = None):
+    from transformer_lens import HookedTransformer
+    model_path = model_name if cache_dir is None else cache_dir + model_name
+    model = HookedTransformer.from_pretrained(model_path, fold_ln=False, center_writing_weights=False)
+    return model, model.tokenizer
+
+
+def build_refusal_hooks(direction: torch.Tensor, n_layers: int):
+    direction = direction / (direction.norm() + 1e-8)
+
+    def ablation_hook(value, hook, direction):
+        direction = direction.to(value)
+        value -= (value @ direction).unsqueeze(-1) * direction
+        return value
+
+    hook_fn = functools.partial(ablation_hook, direction=direction)
+    return [(f"blocks.{layer}.hook_resid_pre", hook_fn) for layer in range(n_layers)]

@@ -1,6 +1,7 @@
 import os
 import sys
 import math
+import torch
 import argparse
 import itertools
 import pandas as pd
@@ -8,13 +9,13 @@ from tqdm import tqdm
 from collections import defaultdict
 from mcp import run_mcp_batch
 from mevs.generator import generate_question_string
-from utils import load_config, load_mevs, load_completed_answerids, expand_orders, build_answerid, load_model
+from utils import load_config, load_mevs, load_completed_answerids, expand_orders, build_answerid, load_model, load_hooked_model, build_refusal_hooks
 
-def process_batch(batch, model, tokenizer, model_name, output_file):
+def process_batch(batch, model, tokenizer, model_name, output_file, fwd_hooks=[]):
     prompts = [b["prompt"] for b in batch]
     answer_tokens = [b["answer_tokens"] for b in batch]
 
-    choices = run_mcp_batch(prompts, answer_tokens, model, tokenizer)
+    choices = run_mcp_batch(prompts, answer_tokens, model, tokenizer, fwd_hooks=fwd_hooks)
 
     rows = []
     for b, p, choice in zip(batch, prompts, choices):
@@ -68,7 +69,15 @@ def main(config_path, model_override=None):
         f"{model_name.replace('/', '_')}.csv"
     )
 
-    model, tokenizer = load_model(model_name, cache_dir, precision)
+    direction_path = config.get("refusal_direction", None)
+
+    if direction_path:
+        model, tokenizer = load_hooked_model(model_name, cache_dir)
+        direction = torch.load(direction_path, map_location="cpu")
+        fwd_hooks = build_refusal_hooks(direction, model.cfg.n_layers)
+    else:
+        model, tokenizer = load_model(model_name, cache_dir, precision)
+        fwd_hooks = []
 
     BATCH_SIZE = 32
     batch_groups = defaultdict(list)
@@ -129,14 +138,14 @@ def main(config_path, model_override=None):
                 group = batch_groups[key]
 
                 if len(group) >= BATCH_SIZE:
-                    process_batch(group, model, tokenizer, model_name, output_file)
+                    process_batch(group, model, tokenizer, model_name, output_file, fwd_hooks)
                     pbar.update(len(group))
                     batch_groups[key] = []
 
     # final flush
     for group in batch_groups.values():
         if group:
-            process_batch(group, model, tokenizer, model_name, output_file)
+            process_batch(group, model, tokenizer, model_name, output_file, fwd_hooks)
             pbar.update(len(group))
 
 if __name__ == "__main__":
